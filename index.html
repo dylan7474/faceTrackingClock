@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Holographic 3D Clock</title>
+    
+    <!-- Using MediaPipe: More modern and reliable than Jeeliz -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"></script>
+
+    <style>
+        :root {
+            --bg: #020617;
+            --accent: #0ea5e9;
+            --glass: rgba(15, 23, 42, 0.8);
+        }
+
+        body {
+            margin: 0;
+            background-color: var(--bg);
+            color: white;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            perspective: 2000px;
+        }
+
+        /* The Virtual Room / Window */
+        #scene-container {
+            position: relative;
+            width: 80vw;
+            height: 60vh;
+            background: #0f172a;
+            border: 2px solid #1e293b;
+            border-radius: 30px;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: inset 0 0 100px rgba(0,0,0,0.8), 0 0 50px rgba(0,0,0,0.5);
+            transform-style: preserve-3d;
+        }
+
+        /* Background grid to sell the 3D depth */
+        #grid {
+            position: absolute;
+            width: 200%;
+            height: 200%;
+            background-image: 
+                linear-gradient(rgba(14, 165, 233, 0.1) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(14, 165, 233, 0.1) 1px, transparent 1px);
+            background-size: 50px 50px;
+            transform: translateZ(-300px);
+            pointer-events: none;
+        }
+
+        /* The Clock Structure */
+        #clock-wrapper {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            transform-style: preserve-3d;
+            transition: transform 0.1s linear;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .layer {
+            position: absolute;
+            font-size: 10vw;
+            font-weight: 900;
+            font-variant-numeric: tabular-nums;
+            pointer-events: none;
+            user-select: none;
+            letter-spacing: -2px;
+        }
+
+        /* Back Shadow Layer */
+        .layer-back {
+            color: rgba(14, 165, 233, 0.1);
+            transform: translateZ(-100px);
+            filter: blur(5px);
+        }
+
+        /* Middle Layer */
+        .layer-mid {
+            color: var(--accent);
+            text-shadow: 0 0 20px rgba(14, 165, 233, 0.5);
+            transform: translateZ(50px);
+        }
+
+        /* Top Outline Layer */
+        .layer-front {
+            color: white;
+            -webkit-text-stroke: 2px var(--accent);
+            color: transparent;
+            transform: translateZ(150px);
+            filter: drop-shadow(0 0 10px rgba(255,255,255,0.3));
+        }
+
+        /* UI Elements */
+        #controls {
+            position: fixed;
+            bottom: 40px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+            z-index: 100;
+        }
+
+        #btn-camera {
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 12px 28px;
+            border-radius: 50px;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(14, 165, 233, 0.4);
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        #btn-camera:hover {
+            transform: scale(1.05);
+            background: #38bdf8;
+        }
+
+        .status-box {
+            background: var(--glass);
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            color: #94a3b8;
+            border: 1px solid rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+        }
+
+        /* Hidden video for tracking */
+        video { display: none; }
+    </style>
+</head>
+<body>
+
+    <video id="input_video"></video>
+
+    <div id="scene-container">
+        <div id="grid"></div>
+        <div id="clock-wrapper">
+            <div id="time-back" class="layer layer-back">00:00:00</div>
+            <div id="time-mid" class="layer layer-mid">00:00:00</div>
+            <div id="time-front" class="layer layer-front">00:00:00</div>
+        </div>
+    </div>
+
+    <div id="controls">
+        <button id="btn-camera">Enable Face Tracking</button>
+        <div class="status-box" id="status">Mode: Mouse Parallax</div>
+    </div>
+
+    <script>
+        const wrapper = document.getElementById('clock-wrapper');
+        const grid = document.getElementById('grid');
+        const statusEl = document.getElementById('status');
+        const btnCamera = document.getElementById('btn-camera');
+        const videoElement = document.getElementById('input_video');
+        
+        const layers = {
+            back: document.getElementById('time-back'),
+            mid: document.getElementById('time-mid'),
+            front: document.getElementById('time-front')
+        };
+
+        let currentX = 0;
+        let currentY = 0;
+        let targetX = 0;
+        let targetY = 0;
+        let isCameraActive = false;
+
+        // 1. Update Time
+        function updateTime() {
+            const now = new Date();
+            const timeStr = now.getHours().toString().padStart(2, '0') + ':' +
+                          now.getMinutes().toString().padStart(2, '0') + ':' +
+                          now.getSeconds().toString().padStart(2, '0');
+            layers.back.textContent = timeStr;
+            layers.mid.textContent = timeStr;
+            layers.front.textContent = timeStr;
+        }
+        setInterval(updateTime, 1000);
+        updateTime();
+
+        // 2. Smooth Animation Loop
+        function animate() {
+            // Lerp for smoothness
+            currentX += (targetX - currentX) * 0.1;
+            currentY += (targetY - currentY) * 0.1;
+
+            const rotY = currentX * 40;
+            const rotX = -currentY * 30;
+            
+            wrapper.style.transform = `rotateY(${rotY}deg) rotateX(${rotX}deg)`;
+            
+            // Background grid moves slightly to enhance depth
+            grid.style.transform = `translateZ(-300px) translateX(${currentX * -100}px) translateY(${currentY * 50}px)`;
+
+            requestAnimationFrame(animate);
+        }
+        animate();
+
+        // 3. Mouse Fallback
+        window.addEventListener('mousemove', (e) => {
+            if (isCameraActive) return;
+            targetX = (e.clientX / window.innerWidth) * 2 - 1;
+            targetY = (e.clientY / window.innerHeight) * 2 - 1;
+        });
+
+        // 4. MediaPipe Face Detection
+        async function startFaceTracking() {
+            try {
+                statusEl.textContent = "Loading MediaPipe...";
+                
+                const faceDetection = new FaceDetection({
+                    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`
+                });
+
+                faceDetection.setOptions({
+                    model: 'short',
+                    minDetectionConfidence: 0.5
+                });
+
+                faceDetection.onResults((results) => {
+                    if (results.detections.length > 0) {
+                        const face = results.detections[0].boundingBox;
+                        // Map face position to -1 to 1 range
+                        // Center is roughly 0.5, 0.5
+                        targetX = -( (face.xCenter * 2) - 1 ); 
+                        targetY = (face.yCenter * 2) - 1;
+                        
+                        if (!isCameraActive) {
+                            isCameraActive = true;
+                            statusEl.textContent = "Mode: Face Tracking Active";
+                            btnCamera.style.display = 'none';
+                        }
+                    }
+                });
+
+                const camera = new Camera(videoElement, {
+                    onFrame: async () => {
+                        await faceDetection.send({image: videoElement});
+                    },
+                    width: 640,
+                    height: 480
+                });
+
+                statusEl.textContent = "Requesting Camera Permission...";
+                await camera.start();
+                
+            } catch (err) {
+                console.error(err);
+                statusEl.textContent = "Error: Camera access denied or blocked.";
+            }
+        }
+
+        btnCamera.onclick = startFaceTracking;
+
+    </script>
+</body>
+</html>
