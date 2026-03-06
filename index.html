@@ -3,146 +3,227 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Holographic 3D Clock</title>
+    <title>Neural Voxel 3D Clock</title>
     
-    <!-- Using MediaPipe: More modern and reliable than Jeeliz -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"></script>
 
     <style>
         :root {
-            --bg: #020617;
-            --accent: #0ea5e9;
-            --glass: rgba(15, 23, 42, 0.8);
+            --bg: #010409;
+            --accent: #00f2ff;
+            --accent-glow: rgba(0, 242, 255, 0.5);
+            --secondary: #7000ff;
+            --panel: rgba(13, 17, 23, 0.9);
         }
 
         body {
             margin: 0;
             background-color: var(--bg);
             color: white;
-            font-family: 'Segoe UI', system-ui, sans-serif;
+            font-family: 'Courier New', monospace;
             overflow: hidden;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
             height: 100vh;
-            perspective: 2000px;
         }
 
-        /* The Virtual Room / Window */
+        /* Scanline Overlay Effect */
+        body::after {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0; left: 0; bottom: 0; right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), 
+                        linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+            z-index: 1000;
+            background-size: 100% 4px, 3px 100%;
+            pointer-events: none;
+            opacity: 0.3;
+        }
+
         #scene-container {
             position: relative;
-            width: 80vw;
-            height: 60vh;
-            background: #0f172a;
-            border: 2px solid #1e293b;
-            border-radius: 30px;
+            width: 95vw;
+            height: 75vh;
+            background: radial-gradient(circle at center, #0d1117 0%, #010409 100%);
+            border: 1px solid #30363d;
+            border-radius: 10px;
             overflow: hidden;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            box-shadow: inset 0 0 100px rgba(0,0,0,0.8), 0 0 50px rgba(0,0,0,0.5);
-            transform-style: preserve-3d;
+            box-shadow: 0 0 40px rgba(0,0,0,1), inset 0 0 100px rgba(112, 0, 255, 0.1);
+            perspective: 1200px;
         }
 
-        /* Background grid to sell the 3D depth */
-        #grid {
+        /* Star Field Canvas */
+        #star-canvas {
             position: absolute;
-            width: 200%;
-            height: 200%;
-            background-image: 
-                linear-gradient(rgba(14, 165, 233, 0.1) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(14, 165, 233, 0.1) 1px, transparent 1px);
-            background-size: 50px 50px;
-            transform: translateZ(-300px);
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
             pointer-events: none;
+            z-index: 0;
         }
 
-        /* The Clock Structure */
-        #clock-wrapper {
-            position: relative;
+        /* Rotating Background HUD */
+        #hud-background {
+            position: absolute;
+            width: 800px;
+            height: 800px;
+            border: 2px solid rgba(0, 242, 255, 0.05);
+            border-radius: 50%;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) translateZ(-400px);
+            pointer-events: none;
+            z-index: 1;
+            animation: rotateHUD 20s linear infinite;
+        }
+
+        #hud-background::before {
+            content: "";
+            position: absolute;
+            width: 90%; height: 90%;
+            border: 1px dashed rgba(112, 0, 255, 0.1);
+            border-radius: 50%;
+            top: 5%; left: 5%;
+        }
+
+        @keyframes rotateHUD {
+            from { transform: translate(-50%, -50%) translateZ(-400px) rotate(0deg); }
+            to { transform: translate(-50%, -50%) translateZ(-400px) rotate(360deg); }
+        }
+
+        /* The 3D Stage */
+        #stage {
+            position: absolute;
             width: 100%;
             height: 100%;
             transform-style: preserve-3d;
-            transition: transform 0.1s linear;
             display: flex;
             align-items: center;
             justify-content: center;
+            z-index: 10;
         }
 
-        .layer {
+        .digit-group {
+            display: flex;
+            gap: 15px;
+            transform-style: preserve-3d;
+        }
+
+        .digit-container {
+            position: relative;
+            width: 75px;
+            height: 120px;
+            transform-style: preserve-3d;
+        }
+
+        /* Futuristic Holographic Voxel */
+        .voxel {
             position: absolute;
-            font-size: 10vw;
-            font-weight: 900;
-            font-variant-numeric: tabular-nums;
-            pointer-events: none;
-            user-select: none;
-            letter-spacing: -2px;
+            width: 14px;
+            height: 14px;
+            transform-style: preserve-3d;
+            animation: voxelPulse 4s infinite ease-in-out;
         }
 
-        /* Back Shadow Layer */
-        .layer-back {
-            color: rgba(14, 165, 233, 0.1);
-            transform: translateZ(-100px);
-            filter: blur(5px);
+        @keyframes voxelPulse {
+            0%, 100% { opacity: 0.9; }
+            50% { opacity: 1; filter: brightness(1.2); }
         }
 
-        /* Middle Layer */
-        .layer-mid {
-            color: var(--accent);
-            text-shadow: 0 0 20px rgba(14, 165, 233, 0.5);
-            transform: translateZ(50px);
+        .face {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border: 1px solid rgba(255,255,255,0.1);
+            box-sizing: border-box;
+            backdrop-filter: blur(2px);
         }
 
-        /* Top Outline Layer */
-        .layer-front {
-            color: white;
-            -webkit-text-stroke: 2px var(--accent);
-            color: transparent;
-            transform: translateZ(150px);
-            filter: drop-shadow(0 0 10px rgba(255,255,255,0.3));
+        .front  { transform: translateZ(7px); background: rgba(0, 242, 255, 0.6); box-shadow: 0 0 10px var(--accent-glow); }
+        .back   { transform: rotateY(180deg) translateZ(7px); background: rgba(112, 0, 255, 0.4); }
+        .right  { transform: rotateY(90deg) translateZ(7px); background: rgba(0, 242, 255, 0.3); }
+        .left   { transform: rotateY(-90deg) translateZ(7px); background: rgba(0, 242, 255, 0.3); }
+        .top    { transform: rotateX(90deg) translateZ(7px); background: rgba(255, 255, 255, 0.5); }
+        .bottom { transform: rotateX(-90deg) translateZ(7px); background: rgba(112, 0, 255, 0.6); }
+
+        .separator {
+            width: 20px;
+            height: 120px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-around;
+            align-items: center;
+            transform-style: preserve-3d;
         }
 
-        /* UI Elements */
+        /* Infinite Moving Data Floor */
+        #floor {
+            position: absolute;
+            bottom: -200px;
+            width: 400%;
+            height: 1200px;
+            background-image: 
+                linear-gradient(var(--accent-glow) 1px, transparent 1px),
+                linear-gradient(90deg, var(--accent-glow) 1px, transparent 1px);
+            background-size: 60px 60px;
+            transform: rotateX(80deg) translateZ(-100px);
+            opacity: 0.2;
+            mask-image: linear-gradient(to top, rgba(0,0,0,1), rgba(0,0,0,0));
+            animation: floorFlow 10s linear infinite;
+            z-index: 2;
+        }
+
+        @keyframes floorFlow {
+            from { background-position: 0 0; }
+            to { background-position: 0 60px; }
+        }
+
+        /* UI HUD Elements */
         #controls {
             position: fixed;
-            bottom: 40px;
+            bottom: 30px;
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 15px;
-            z-index: 100;
+            gap: 12px;
+            z-index: 1001;
         }
 
         #btn-camera {
-            background: var(--accent);
-            color: white;
-            border: none;
-            padding: 12px 28px;
-            border-radius: 50px;
-            font-weight: bold;
+            background: transparent;
+            color: var(--accent);
+            border: 1px solid var(--accent);
+            padding: 10px 30px;
+            border-radius: 4px;
+            font-family: inherit;
+            text-transform: uppercase;
+            letter-spacing: 2px;
             cursor: pointer;
-            box-shadow: 0 4px 15px rgba(14, 165, 233, 0.4);
-            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            transition: all 0.3s;
+            box-shadow: 0 0 10px var(--accent-glow);
         }
 
         #btn-camera:hover {
-            transform: scale(1.05);
-            background: #38bdf8;
+            background: var(--accent);
+            color: black;
+            box-shadow: 0 0 20px var(--accent);
         }
 
-        .status-box {
-            background: var(--glass);
-            padding: 8px 20px;
-            border-radius: 20px;
-            font-size: 0.85rem;
-            color: #94a3b8;
-            border: 1px solid rgba(255,255,255,0.1);
-            backdrop-filter: blur(10px);
+        .status {
+            background: rgba(0, 0, 0, 0.8);
+            border: 1px solid #30363d;
+            padding: 6px 20px;
+            font-size: 0.7rem;
+            color: #8b949e;
+            text-transform: uppercase;
+            letter-spacing: 1px;
         }
 
-        /* Hidden video for tracking */
         video { display: none; }
     </style>
 </head>
@@ -151,125 +232,221 @@
     <video id="input_video"></video>
 
     <div id="scene-container">
-        <div id="grid"></div>
-        <div id="clock-wrapper">
-            <div id="time-back" class="layer layer-back">00:00:00</div>
-            <div id="time-mid" class="layer layer-mid">00:00:00</div>
-            <div id="time-front" class="layer layer-front">00:00:00</div>
+        <canvas id="star-canvas"></canvas>
+        <div id="hud-background"></div>
+        <div id="floor"></div>
+        <div id="stage">
+            <div class="digit-group" id="clock-stage">
+                <div id="h1" class="digit-container"></div>
+                <div id="h2" class="digit-container"></div>
+                <div class="separator"><div id="s1_t"></div><div id="s1_b"></div></div>
+                <div id="m1" class="digit-container"></div>
+                <div id="m2" class="digit-container"></div>
+                <div class="separator"><div id="s2_t"></div><div id="s2_b"></div></div>
+                <div id="s1" class="digit-container"></div>
+                <div id="s2" class="digit-container"></div>
+            </div>
         </div>
     </div>
 
     <div id="controls">
-        <button id="btn-camera">Enable Face Tracking</button>
-        <div class="status-box" id="status">Mode: Mouse Parallax</div>
+        <button id="btn-camera">Engage Neural Link</button>
+        <div class="status" id="status">System Status: Standby [Mouse Control]</div>
     </div>
 
     <script>
-        const wrapper = document.getElementById('clock-wrapper');
-        const grid = document.getElementById('grid');
+        const font = {
+            '0': [0x1F, 0x11, 0x11, 0x11, 0x1F],
+            '1': [0x00, 0x12, 0x1F, 0x10, 0x00],
+            '2': [0x1D, 0x15, 0x15, 0x15, 0x17],
+            '3': [0x11, 0x15, 0x15, 0x15, 0x1F],
+            '4': [0x07, 0x04, 0x04, 0x04, 0x1F],
+            '5': [0x17, 0x15, 0x15, 0x15, 0x1D],
+            '6': [0x1F, 0x15, 0x15, 0x15, 0x1D],
+            '7': [0x01, 0x01, 0x11, 0x09, 0x07],
+            '8': [0x1F, 0x15, 0x15, 0x15, 0x1F],
+            '9': [0x17, 0x15, 0x15, 0x15, 0x1F]
+        };
+
+        const clockStage = document.getElementById('clock-stage');
         const statusEl = document.getElementById('status');
         const btnCamera = document.getElementById('btn-camera');
         const videoElement = document.getElementById('input_video');
-        
-        const layers = {
-            back: document.getElementById('time-back'),
-            mid: document.getElementById('time-mid'),
-            front: document.getElementById('time-front')
-        };
+        const starCanvas = document.getElementById('star-canvas');
+        const sCtx = starCanvas.getContext('2d');
 
-        let currentX = 0;
-        let currentY = 0;
-        let targetX = 0;
-        let targetY = 0;
-        let isCameraActive = false;
+        const digitIds = ['h1', 'h2', 'm1', 'm2', 's1', 's2'];
+        const containers = {};
+        digitIds.forEach(id => containers[id] = document.getElementById(id));
 
-        // 1. Update Time
+        // Star field setup
+        let stars = [];
+        const starCount = 300;
+
+        function initStars() {
+            starCanvas.width = starCanvas.offsetWidth;
+            starCanvas.height = starCanvas.offsetHeight;
+            stars = [];
+            for (let i = 0; i < starCount; i++) {
+                stars.push({
+                    x: (Math.random() - 0.5) * 2,
+                    y: (Math.random() - 0.5) * 2,
+                    z: Math.random() // Depth from 0 to 1
+                });
+            }
+        }
+
+        function drawStars(cx, cy) {
+            sCtx.clearRect(0, 0, starCanvas.width, starCanvas.height);
+            const w = starCanvas.width;
+            const h = starCanvas.height;
+            const centerX = w / 2;
+            const centerY = h / 2;
+
+            stars.forEach(s => {
+                // Gentle movement towards viewer
+                s.z -= 0.0006;
+                if (s.z <= 0) s.z = 1;
+
+                // Projection
+                // We add a parallax shift based on the head/mouse position (cx, cy)
+                const px = (s.x + cx * 0.1) / s.z;
+                const py = (s.y + cy * 0.1) / s.z;
+
+                const screenX = centerX + px * centerX;
+                const screenY = centerY + py * centerY;
+                
+                // Opacity fades in as they get closer, fades out at the very end
+                const opacity = s.z > 0.8 ? (1 - s.z) * 5 : 1;
+                const size = (1 - s.z) * 2.5;
+
+                if (screenX > 0 && screenX < w && screenY > 0 && screenY < h) {
+                    sCtx.fillStyle = `rgba(255, 255, 255, ${opacity})`;
+                    sCtx.beginPath();
+                    sCtx.arc(screenX, screenY, size, 0, Math.PI * 2);
+                    sCtx.fill();
+                }
+            });
+        }
+
+        function createVoxel(x, y, delay) {
+            const voxel = document.createElement('div');
+            voxel.className = 'voxel';
+            voxel.style.left = (x * 16) + 'px';
+            voxel.style.top = (y * 16) + 'px';
+            voxel.style.animationDelay = `${delay}s`;
+            
+            ['front', 'back', 'left', 'right', 'top', 'bottom'].forEach(side => {
+                const face = document.createElement('div');
+                face.className = `face ${side}`;
+                voxel.appendChild(face);
+            });
+            return voxel;
+        }
+
+        const currentDigits = {};
+        function updateDigit(id, val) {
+            if (currentDigits[id] === val) return;
+            currentDigits[id] = val;
+            
+            const container = containers[id];
+            container.innerHTML = '';
+            
+            const cols = font[val];
+            cols.forEach((col, x) => {
+                for (let y = 0; y < 5; y++) {
+                    if ((col >> y) & 1) {
+                        container.appendChild(createVoxel(x, y, (x + y) * 0.1));
+                    }
+                }
+            });
+        }
+
+        function initSeparators() {
+            ['s1_t', 's1_b', 's2_t', 's2_b'].forEach(id => {
+                const el = document.getElementById(id);
+                el.className = 'digit-container';
+                el.style.width = '14px'; el.style.height = '14px';
+                el.appendChild(createVoxel(0, 0, Math.random()));
+            });
+        }
+        initSeparators();
+
         function updateTime() {
             const now = new Date();
-            const timeStr = now.getHours().toString().padStart(2, '0') + ':' +
-                          now.getMinutes().toString().padStart(2, '0') + ':' +
-                          now.getSeconds().toString().padStart(2, '0');
-            layers.back.textContent = timeStr;
-            layers.mid.textContent = timeStr;
-            layers.front.textContent = timeStr;
+            const h = now.getHours().toString().padStart(2, '0');
+            const m = now.getMinutes().toString().padStart(2, '0');
+            const s = now.getSeconds().toString().padStart(2, '0');
+            
+            updateDigit('h1', h[0]); updateDigit('h2', h[1]);
+            updateDigit('m1', m[0]); updateDigit('m2', m[1]);
+            updateDigit('s1', s[0]); updateDigit('s2', s[1]);
         }
         setInterval(updateTime, 1000);
         updateTime();
 
-        // 2. Smooth Animation Loop
-        function animate() {
-            // Lerp for smoothness
-            currentX += (targetX - currentX) * 0.1;
-            currentY += (targetY - currentY) * 0.1;
+        let targetX = 0, targetY = 0, curX = 0, curY = 0, isCamera = false;
 
-            const rotY = currentX * 40;
-            const rotX = -currentY * 30;
+        function animate() {
+            curX += (targetX - curX) * 0.08;
+            curY += (targetY - curY) * 0.08;
+
+            const rotY = curX * 50;
+            const rotX = -curY * 35;
+
+            clockStage.style.transform = `rotateY(${rotY}deg) rotateX(${rotX}deg)`;
             
-            wrapper.style.transform = `rotateY(${rotY}deg) rotateX(${rotX}deg)`;
-            
-            // Background grid moves slightly to enhance depth
-            grid.style.transform = `translateZ(-300px) translateX(${currentX * -100}px) translateY(${currentY * 50}px)`;
+            // HUD and floor movement
+            document.getElementById('hud-background').style.transform = `translate(-50%, -50%) translateZ(-400px) rotate(${Date.now()/50}deg) translateX(${curX * 50}px)`;
+            document.getElementById('floor').style.transform = `rotateX(80deg) translateZ(-100px) translateX(${curX * -150}px)`;
+
+            // Update star field with parallax
+            drawStars(curX, curY);
 
             requestAnimationFrame(animate);
         }
-        animate();
 
-        // 3. Mouse Fallback
+        window.addEventListener('resize', initStars);
         window.addEventListener('mousemove', (e) => {
-            if (isCameraActive) return;
+            if (isCamera) return;
             targetX = (e.clientX / window.innerWidth) * 2 - 1;
             targetY = (e.clientY / window.innerHeight) * 2 - 1;
         });
 
-        // 4. MediaPipe Face Detection
-        async function startFaceTracking() {
+        async function startTracking() {
             try {
-                statusEl.textContent = "Loading MediaPipe...";
-                
+                statusEl.textContent = "Establishing Neural Link...";
                 const faceDetection = new FaceDetection({
                     locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`
                 });
 
-                faceDetection.setOptions({
-                    model: 'short',
-                    minDetectionConfidence: 0.5
-                });
-
-                faceDetection.onResults((results) => {
+                faceDetection.setOptions({ model: 'short', minDetectionConfidence: 0.6 });
+                faceDetection.onResults(results => {
                     if (results.detections.length > 0) {
+                        isCamera = true;
                         const face = results.detections[0].boundingBox;
-                        // Map face position to -1 to 1 range
-                        // Center is roughly 0.5, 0.5
-                        targetX = -( (face.xCenter * 2) - 1 ); 
+                        targetX = -( (face.xCenter * 2) - 1 );
                         targetY = (face.yCenter * 2) - 1;
-                        
-                        if (!isCameraActive) {
-                            isCameraActive = true;
-                            statusEl.textContent = "Mode: Face Tracking Active";
-                            btnCamera.style.display = 'none';
-                        }
+                        statusEl.textContent = "Neural Link: ACTIVE [Bio-Sync]";
+                        btnCamera.style.display = 'none';
                     }
                 });
 
                 const camera = new Camera(videoElement, {
-                    onFrame: async () => {
-                        await faceDetection.send({image: videoElement});
-                    },
-                    width: 640,
-                    height: 480
+                    onFrame: async () => { await faceDetection.send({image: videoElement}); },
+                    width: 640, height: 480
                 });
-
-                statusEl.textContent = "Requesting Camera Permission...";
                 await camera.start();
-                
             } catch (err) {
-                console.error(err);
-                statusEl.textContent = "Error: Camera access denied or blocked.";
+                statusEl.textContent = "Sync Failed. Manual Override Only.";
             }
         }
 
-        btnCamera.onclick = startFaceTracking;
+        btnCamera.onclick = startTracking;
 
+        // Start animation and star initialization
+        initStars();
+        animate();
     </script>
 </body>
 </html>
